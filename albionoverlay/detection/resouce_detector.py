@@ -2,7 +2,6 @@ import onnxruntime as ort
 import numpy as np
 import yaml
 import cv2
-from typing import List, Tuple
 
 class Detector:
     def __init__(
@@ -15,11 +14,17 @@ class Detector:
         # load class names
         with open(data_yaml) as f:
             data = yaml.safe_load(f)
-        self.class_names: List[str] = list(data['names'].values())
+        self.class_names: list[str] = list(data['names'].values())
         self.nc = len(self.class_names)
 
         # ONNX session
-        self.session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+        available_providers = ort.get_available_providers()
+        if "CUDAExecutionProvider" in available_providers:
+            self.session = ort.InferenceSession(onnx_path, providers=["CUDAExecutionProvider"])
+            print("[INFO] Using GPU for inference.")
+        else:
+            self.session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+            print("[INFO] CUDA not available. Falling back to CPU.")
         self.input_name = self.session.get_inputs()[0].name
         self.input_size = input_size
 
@@ -34,10 +39,10 @@ class Detector:
     def postprocess(
             self,
             pred: np.ndarray,
-            orig_shape: Tuple[int,int],
-            selected_classes: List[str]=None,
+            orig_shape: tuple[int,int],
+            selected_classes: list[str]=None,
             conf_threshold: float = None
-        ) -> List[Tuple[int,int,int,int,float,str]]:
+        ) -> list[tuple[int,int,int,int,float,str]]:
         """
         pred: (1, N, 4+nc) → [xc,yc,w,h,, class_conf1..class_conf_nc]
         Returns list of (x1,y1,x2,y2,conf,cls_name)
@@ -84,9 +89,9 @@ class Detector:
     def detect(
             self,
             frame: np.ndarray,
-            selected_classes: List[str]=None,
+            selected_classes: list[str]=None,
             conf_thres: float = None,
-        ) -> List[Tuple[int,int,int,int,float,str]]:
+        ) -> list[tuple[int,int,int,int,float,str]]:
 
         inp = self.preprocess(frame)
         out = self.session.run(None, {self.input_name: inp})[0]

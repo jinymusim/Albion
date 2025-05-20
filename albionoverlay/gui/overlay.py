@@ -1,31 +1,28 @@
 import mss
-import cv2
 import csv
 import os
-import numpy as np
+import keyboard
+import threading
 from albionoverlay.detection.resouce_detector import Detector
-from PyQt5.QtGui import QPixmap
+from albionoverlay.detection.tracker import SimpleTracker
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtCore import Qt, QRect, QTimer
-from PyQt5.QtGui import QPainter, QFont, QColor
-from typing import List
-from albionoverlay.utils.utils import find_game_rect, get_price, iou
+from PyQt5.QtCore import Qt, QRect, QThread
+from PyQt5.QtGui import QPainter, QFont, QColor, QPixmap
+from albionoverlay.utils.utils import get_price, iou, find_game_rect
+from albionoverlay.gui.detworker import DetectionWorker
 
 
 class Overlay(QWidget):
     def __init__(
             self,
             detector: Detector,
-            select_classes: List[str]=None,
+            select_classes: list[str]=None,
             capture_region=None
         ):
         super().__init__()
         self.detector = detector
         self.selected = select_classes  # e.g. ['T4_ORE','T4_WOOD']
         self.dets = []
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_dets)
-        self.timer.start(1000)
 
         self.monitor = capture_region or mss.mss().monitors[1]
         self.setWindowFlags(Qt.WindowStaysOnTopHint|Qt.FramelessWindowHint|Qt.Tool)
@@ -45,6 +42,24 @@ class Overlay(QWidget):
         self.logger = csv.writer(self.log_file)
         self.logger.writerow(["class", "conf", "x1", "y1", "x2", "y2"])
 
+        self.thread = QThread()
+        self.worker = DetectionWorker(
+            self.detector,
+            get_config=self.get_detection_config,
+            get_region=self.get_capture_region,
+            smooth_fn=self.smooth_detections
+        )
+        self.worker.moveToThread(self.thread)
+        self.worker.finished.connect(self.handle_detections)
+        self.thread.started.connect(self.worker.run)
+        self.thread.start()
+
+        self._detection_enabled = True
+        # Start global hotkey listener in separate thread
+        threading.Thread(target=self._hotkey_loop, daemon=True).start()
+
+        self.tracker = SimpleTracker()
+
     def _load_icons(self, class_names):
         icons = {}
         for cls in class_names:
@@ -53,61 +68,30 @@ class Overlay(QWidget):
                 icons[cls] = QPixmap(icon_path).scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         return icons
 
-    def update_dets(self):
-        if not self.visible:
-            return
-        
-        self.setVisible(False) # To capture clean frame
+    def get_detection_config(self):
+        return self.selected, self.conf_threshold
 
-        rect = find_game_rect()
-        if not rect:
-            self.setVisible(True)
-            return
-        
-        left, top, right, bottom = rect
-        width, height = right-left, bottom-top
-        self.monitor_rect = rect
-        self.setGeometry(left, top, width, height)
+    def get_capture_region(self):
+        return find_game_rect()  # or game region if refined
 
-
-        # capture game region
-        sct = mss.mss()
-        shot = sct.grab({"left": left, "top": top, "width": width, "height": height})
-        frame = np.array(shot)[:, :, :3]
-
-        self.setVisible(True) # Restore visibility
-
-        #cv2.imshow("Debug - Raw Frame", frame)
-
-        raw_dets = self.detector.detect(frame, self.selected, self.conf_threshold)
-
-        smoothed = []
-        for det in raw_dets:
-            x1, y1, x2, y2, conf, name = det
-            matched = False
-            for prev in self.prev_dets:
-                px1, py1, px2, py2, _, pname = prev
-                if name == pname and iou((x1, y1, x2, y2), (px1, py1, px2, py2)) > 0.5:
-                    smoothed.append(prev)  # reuse previous box
-                    matched = True
-                    break
-            if not matched:
-                smoothed.append(det)
-
-                # Update session counter and log
-                self.session_counts[name] = self.session_counts.get(name, 0) + 1
-                self.logger.writerow([name, f"{conf:.2f}", x1, y1, x2, y2])
-                self.log_file.flush()
-
-        self.prev_dets = smoothed
-        self.dets = smoothed
-        
+    def handle_detections(self, dets):
+        self.dets = dets
         self.update()
+
+    def smooth_detections(self, raw_dets):
+        # raw_dets = [(x1,y1,x2,y2,conf,class)]
+        tracked = self.tracker.update(raw_dets)
+
+        for _, _, _, _, conf, name, _ in tracked:
+            self.session_counts[name] = self.session_counts.get(name, 0) + 1
+            # optionally log here
+
+        return tracked
 
     def paintEvent(self, ev):
         p = QPainter(self)
         p.setFont(QFont('Arial',15,QFont.Bold))
-        for x1,y1,x2,y2,conf,name in self.dets:
+        for x1, y1, x2, y2, _, name, tid in self.dets:
             p.setPen(QColor(255, 255, 0))
             p.drawRect(QRect(x1, y1, x2 - x1, y2 - y1))
 
@@ -115,6 +99,23 @@ class Overlay(QWidget):
             # Icon or fallback to text
             if name in self.icons:
                 p.drawPixmap(x1, y1 - 42, self.icons[name])
-                p.drawText(x1 + 42, y1 - 5, f"{price} ({self.city})")
+                p.drawText(x1 + 42, y1 - 5, f"{price} ({self.city}), (ID: {tid})")
             else:
-                p.drawText(x1, y1 - 5, f"{name} {price} ({self.city})")
+                p.drawText(x1, y1 - 5, f"{name} {price} ({self.city}), (ID: {tid})")
+
+    def _hotkey_loop(self):
+        keyboard.add_hotkey("F1", self._toggle_overlay)
+        keyboard.add_hotkey("F2", self._toggle_detection)
+        keyboard.wait()  # blocks forever in thread
+
+
+    def _toggle_overlay(self):
+        self.visible = not self.visible
+        self.setVisible(self.visible)
+        print(f"[Overlay] Visibility set to {self.visible}")
+
+    def _toggle_detection(self):
+        self._detection_enabled = not self._detection_enabled
+        self.worker.set_enabled(self._detection_enabled)
+        print(f"[Detection] Running: {self._detection_enabled}")
+

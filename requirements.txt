@@ -1,7 +1,8 @@
 PyQt5
 opencv-python
-onnxruntime
+onnxruntime-gpu
 numpy
 mss
 requests
 pyyaml
+keyboard
