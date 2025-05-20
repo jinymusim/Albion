@@ -1,0 +1,7 @@
+PyQt5
+opencv-python
+onnxruntime
+numpy
+mss
+requests
+pyyaml
