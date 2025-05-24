@@ -2,19 +2,19 @@
 import os
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QComboBox, QListWidget,
-    QListWidgetItem, QSlider, QPushButton, QCheckBox, QHBoxLayout
+    QListWidgetItem, QSlider, QPushButton, QCheckBox, QHBoxLayout, QMenu
 )
 from PyQt5.QtGui import QPixmap, QIcon
 from PyQt5.QtCore import Qt, pyqtSignal
 from albionoverlay.gui.draggable_list import DraggableList
 
 class ConfigPanel(QWidget):
-    settings_changed = pyqtSignal(list, str, float, bool)
+    settings_changed = pyqtSignal(list, str, float, bool, list)
 
     def __init__(self, class_names):
         super().__init__()
         self.setWindowTitle("Overlay Settings")
-        self.setGeometry(100, 100, 300, 400)
+        self.setGeometry(200, 200, 500, 600)
 
         layout = QVBoxLayout()
 
@@ -43,9 +43,14 @@ class ConfigPanel(QWidget):
         self.selected_list = DraggableList()
         self.selected_list.setMinimumWidth(160)
         self.selected_list.setDragDropMode(QListWidget.InternalMove)
+        self.selected_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.selected_list.customContextMenuRequested.connect(self.handle_right_click)
         lists_layout.addWidget(self.create_labeled("Selected Resources:", self.selected_list))
 
         layout.addLayout(lists_layout)
+
+        # Alerts
+        self.alert_classes = set()
 
         # Fill selected list (by default all classes are selected)
         for cls in class_names:
@@ -81,4 +86,19 @@ class ConfigPanel(QWidget):
         city = self.city_box.currentText()
         conf = self.slider.value() / 100
         enabled = self.toggle_overlay.isChecked()
-        self.settings_changed.emit(selected, city, conf, enabled)
+        self.settings_changed.emit(selected, city, conf, enabled, list(self.alert_classes))
+
+    def handle_right_click(self, pos):
+        item = self.selected_list.itemAt(pos)
+        if item:
+            class_name = item.text()
+            menu = QMenu()
+            toggle_action = menu.addAction("Toggle Alert for " + class_name)
+            action = menu.exec_(self.selected_list.mapToGlobal(pos))
+            if action == toggle_action:
+                if class_name in self.alert_classes:
+                    self.alert_classes.remove(class_name)
+                    item.setBackground(Qt.white)
+                else:
+                    self.alert_classes.add(class_name)
+                    item.setBackground(Qt.yellow)

@@ -20,11 +20,12 @@ def main():
 
     config = ConfigPanel(det.class_names)
 
-    def apply_settings(classes, city, conf, enabled):
+    def apply_settings(classes, city, conf, enabled, alert_list):
         ov.selected = classes
         ov.city = city
         ov.conf_threshold = conf
         ov.visible = enabled
+        ov.alert_classes = set(alert_list)
 
     config.settings_changed.connect(apply_settings)
     config.show()

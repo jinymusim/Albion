@@ -8,7 +8,8 @@ from albionoverlay.detection.tracker import SimpleTracker
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QRect, QThread
 from PyQt5.QtGui import QPainter, QFont, QColor, QPixmap
-from albionoverlay.utils.utils import get_price, iou, find_game_rect
+from PyQt5.QtCore import QTimer
+from albionoverlay.utils.utils import get_price,  find_game_rect
 from albionoverlay.gui.detworker import DetectionWorker
 
 
@@ -60,6 +61,8 @@ class Overlay(QWidget):
 
         self.tracker = SimpleTracker()
 
+        self.alert_classes = set()
+
     def _load_icons(self, class_names):
         icons = {}
         for cls in class_names:
@@ -92,7 +95,10 @@ class Overlay(QWidget):
         p = QPainter(self)
         p.setFont(QFont('Arial',15,QFont.Bold))
         for x1, y1, x2, y2, _, name, tid in self.dets:
-            p.setPen(QColor(255, 255, 0))
+            alert = name in self.alert_classes
+
+            # Different color for alerted resources
+            p.setPen(QColor(255, 0, 0) if alert else QColor(255, 255, 0))
             p.drawRect(QRect(x1, y1, x2 - x1, y2 - y1))
 
             price = get_price(name, self.city)
@@ -102,6 +108,16 @@ class Overlay(QWidget):
                 p.drawText(x1 + 42, y1 - 5, f"{price} ({self.city}), (ID: {tid})")
             else:
                 p.drawText(x1, y1 - 5, f"{name} {price} ({self.city}), (ID: {tid})")
+
+            # Alert if applicable
+            if alert:
+                self._trigger_alert(name)
+
+        # Draw alert message if active
+        if hasattr(self, "_alert_text") and self._alert_text:
+            p.setFont(QFont('Arial', 24, QFont.Bold))
+            p.setPen(self._alert_color)
+            p.drawText(self.rect(), Qt.AlignTop | Qt.AlignHCenter, self._alert_text)
 
     def _hotkey_loop(self):
         keyboard.add_hotkey("F1", self._toggle_overlay)
@@ -118,4 +134,14 @@ class Overlay(QWidget):
         self._detection_enabled = not self._detection_enabled
         self.worker.set_enabled(self._detection_enabled)
         print(f"[Detection] Running: {self._detection_enabled}")
+
+    def _trigger_alert(self, name):
+        self._alert_text = f"{name} in Area"
+        self._alert_color = QColor(255, 0, 0)
+        QTimer.singleShot(2000, self._clear_alert)
+        self.update()
+
+    def _clear_alert(self):
+        self._alert_text = None
+        self.update()
 
