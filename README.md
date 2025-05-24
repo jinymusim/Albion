@@ -42,7 +42,7 @@ albion-overlay --model models/best.onnx --data data.yaml
 - resources/icons: Display icons for the different resources
 
 ## Development
-- Requires Python 3.8 or higher.
+- Requires Python 3.10 or higher.
 - Main dependencies: PyQt5, OpenCV, onnxruntime, numpy, mss, requests, pyyaml.
 - See requirements.txt for the full list.
 
