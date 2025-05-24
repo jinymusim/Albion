@@ -3,14 +3,13 @@ import csv
 import os
 import keyboard
 import threading
-import time
 from albionoverlay.detection.resouce_detector import Detector
 from albionoverlay.detection.tracker import SimpleTracker
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtCore import Qt, QRect, QThread
 from PyQt5.QtGui import QPainter, QFont, QColor, QPixmap
 from PyQt5.QtCore import QTimer
-from albionoverlay.utils.utils import get_price, iou, find_game_rect
+from albionoverlay.utils.utils import get_price,  find_game_rect
 from albionoverlay.gui.detworker import DetectionWorker
 
 
@@ -63,7 +62,6 @@ class Overlay(QWidget):
         self.tracker = SimpleTracker()
 
         self.alert_classes = set()
-        self.last_alert_times = {}
 
     def _load_icons(self, class_names):
         icons = {}
